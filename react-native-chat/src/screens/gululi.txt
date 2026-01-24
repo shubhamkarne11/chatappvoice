@@ -1,0 +1,992 @@
+//fix 1
+// import PropTypes from 'prop-types';
+// import uuid from 'react-native-uuid';
+// import { Ionicons } from '@expo/vector-icons';
+// import * as ImagePicker from 'expo-image-picker';
+// import * as Audio from 'expo-av';
+// import EmojiModal from 'react-native-emoji-modal';
+// import React, { useState, useEffect, useCallback } from 'react';
+// import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+// import { Send, Bubble, GiftedChat, InputToolbar } from 'react-native-gifted-chat';
+// import { ref, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+// import {
+//   View,
+//   Text,
+//   Keyboard,
+//   StyleSheet,
+//   BackHandler,
+//   TouchableOpacity,
+//   ActivityIndicator,
+//   Platform,
+//   Alert,
+//   KeyboardAvoidingView,
+// } from 'react-native';
+
+// import { colors } from '../config/constants';
+// import { auth, database, storage } from '../config/firebase';
+// import { processMessageForPrivacy, decryptMessage } from '../utils/privacyUtils';
+
+// const RenderLoadingUpload = () => (
+//   <View style={styles.loadingContainerUpload}>
+//     <View style={styles.loadingCard}>
+//       <ActivityIndicator size="large" color={colors.primary} />
+//     </View>
+//   </View>
+// );
+
+// const RenderLoading = () => (
+//   <View style={styles.loadingContainer}>
+//     <ActivityIndicator size="large" color={colors.primary} />
+//   </View>
+// );
+
+// const RenderBubble = (props) => (
+//   <Bubble
+//     {...props}
+//     wrapperStyle={{
+//       right: { 
+//         backgroundColor: colors.messageSent,
+//         borderRadius: 18,
+//         paddingVertical: 8,
+//         paddingHorizontal: 12,
+//         marginBottom: 2,
+//         marginRight: 2,
+//         maxWidth: '75%',
+//         shadowColor: '#000',
+//         shadowOffset: { width: 0, height: 1 },
+//         shadowOpacity: 0.1,
+//         shadowRadius: 2,
+//         elevation: 2,
+//       },
+//       left: { 
+//         backgroundColor: colors.messageReceived,
+//         borderRadius: 18,
+//         paddingVertical: 8,
+//         paddingHorizontal: 12,
+//         marginBottom: 2,
+//         marginLeft: 2,
+//         maxWidth: '75%',
+//         borderWidth: 0.5,
+//         borderColor: colors.borderLight,
+//       },
+//     }}
+//     textStyle={{
+//       right: {
+//         color: colors.textInverse,
+//         fontSize: 15,
+//         lineHeight: 20,
+//       },
+//       left: {
+//         color: colors.text,
+//         fontSize: 15,
+//         lineHeight: 20,
+//       },
+//     }}
+//     tickStyle={{
+//       color: colors.textInverse,
+//     }}
+//     timeTextStyle={{
+//       right: {
+//         color: colors.textInverse,
+//         opacity: 0.7,
+//         fontSize: 11,
+//       },
+//       left: {
+//         color: colors.textSecondary,
+//         fontSize: 11,
+//       },
+//     }}
+//   />
+// );
+
+// const RenderMessage = (props) => {
+//   const { currentMessage } = props;
+  
+//   if (currentMessage.audio) {
+//     return (
+//       <View style={styles.audioMessageContainer}>
+//         <TouchableOpacity 
+//           style={styles.audioButton}
+//           onPress={() => {
+//             // Play audio functionality will be added here
+//             console.log('Play audio:', currentMessage.audio);
+//           }}
+//         >
+//           <Ionicons name="play" size={24} color="white" />
+//           <View style={styles.audioTextContainer}>
+//             <View style={styles.audioText}>Voice Message</View>
+//             <View style={styles.audioDuration}>0:00</View>
+//           </View>
+//         </TouchableOpacity>
+//       </View>
+//     );
+//   }
+
+//   // Handle sensitive messages with decryption option
+//   if (currentMessage.isSensitive && currentMessage.needsDecryption) {
+//     return <SensitiveMessageBubble {...props} />;
+//   }
+  
+//   return <Bubble {...props} />;
+// };
+
+// const SensitiveMessageBubble = (props) => {
+//   const { currentMessage } = props;
+//   const [isDecrypted, setIsDecrypted] = useState(false);
+//   const [decryptedText, setDecryptedText] = useState('');
+
+//   const handleDecrypt = () => {
+//     if (currentMessage.encryptedText) {
+//       const decrypted = decryptMessage(currentMessage.encryptedText);
+//       setDecryptedText(decrypted);
+//       setIsDecrypted(true);
+//     }
+//   };
+
+//   const handleMask = () => {
+//     setIsDecrypted(false);
+//     setDecryptedText('');
+//   };
+
+//   return (
+//     <View style={styles.sensitiveMessageContainer}>
+//       <Bubble
+//         {...props}
+//         currentMessage={{
+//           ...currentMessage,
+//           text: isDecrypted ? decryptedText : currentMessage.text
+//         }}
+//       />
+//       <View style={styles.sensitiveControls}>
+//         <View style={styles.sensitiveIndicator}>
+//           <Ionicons name="shield" size={12} color={colors.error} />
+//           <Text style={styles.sensitiveText}>Sensitive</Text>
+//         </View>
+//         {!isDecrypted ? (
+//           <TouchableOpacity style={styles.decryptButton} onPress={handleDecrypt}>
+//             <Ionicons name="lock-open" size={14} color="white" />
+//             <Text style={styles.decryptButtonText}>Decrypt</Text>
+//           </TouchableOpacity>
+//         ) : (
+//           <TouchableOpacity style={styles.maskButton} onPress={handleMask}>
+//             <Ionicons name="eye-off" size={14} color="white" />
+//             <Text style={styles.maskButtonText}>Mask</Text>
+//           </TouchableOpacity>
+//         )}
+//       </View>
+//     </View>
+//   );
+// };
+
+// const RenderAttach = (props) => (
+//   <TouchableOpacity {...props} style={styles.addImageIcon}>
+//     <View style={styles.iconButton}>
+//       <Ionicons name="attach-outline" size={22} color={colors.primary} />
+//     </View>
+//   </TouchableOpacity>
+// );
+
+// // In the RenderInputToolbar function, update the textInputProps:
+// const RenderInputToolbar = (props, handleEmojiPanel, isRecording, recordingDuration, startRecording, stopRecording) => (
+//   <View style={styles.inputToolbarWrapper}>
+//     <InputToolbar
+//       {...props}
+//       renderActions={() => RenderActions(handleEmojiPanel, isRecording, recordingDuration, startRecording, stopRecording)}
+//       containerStyle={styles.inputToolbar}
+//       textInputProps={{
+//         ...props.textInputProps,
+//         onSubmitEditing: (e) => {
+//           if (props.text && props.text.trim().length > 0) {
+//             props.onSend({ text: props.text.trim() }, true);
+//           }
+//           if (Platform.OS === 'web') {
+//             e.preventDefault();
+//           }
+//         },
+//         returnKeyType: 'send',
+//         blurOnSubmit: false,
+//         enablesReturnKeyAutomatically: true,
+//         ...(Platform.OS === 'web' && {
+//           onKeyPress: (e) => {
+//             // Enter without Shift sends message
+//             if (e.key === 'Enter' && !e.shiftKey) {
+//               e.preventDefault();
+//               if (props.text && props.text.trim().length > 0) {
+//                 props.onSend({ text: props.text.trim() }, true);
+//               }
+//             }
+//             // Shift+Enter creates new line (default behavior)
+//           },
+//         }),
+//       }}
+//     />
+//     <Send {...props}>
+//       <View style={styles.sendIconContainer}>
+//         <Ionicons name="send" size={20} color={colors.textInverse} />
+//       </View>
+//     </Send>
+//   </View>
+// );
+
+// const RenderActions = (handleEmojiPanel, isRecording, recordingDuration, startRecording, stopRecording) => (
+//   <View style={styles.actionsContainer}>
+//     <TouchableOpacity style={styles.emojiIcon} onPress={handleEmojiPanel}>
+//       <View style={styles.iconButton}>
+//         <Ionicons name="happy-outline" size={22} color={colors.primary} />
+//       </View>
+//     </TouchableOpacity>
+    
+//     <TouchableOpacity 
+//       style={[styles.voiceIcon, isRecording && styles.recordingIcon]} 
+//       onPress={isRecording ? stopRecording : startRecording}
+//     >
+//       <View style={[styles.iconButton, isRecording && styles.recordingIconButton]}>
+//         <Ionicons 
+//           name={isRecording ? "stop" : "mic"} 
+//           size={22} 
+//           color={isRecording ? colors.textInverse : colors.primary} 
+//         />
+//       </View>
+//     </TouchableOpacity>
+    
+//     {isRecording && (
+//       <View style={styles.recordingIndicator}>
+//         <View style={styles.recordingPulse} />
+//         <Text style={styles.recordingText}>
+//           {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+//         </Text>
+//       </View>
+//     )}
+//   </View>
+// );
+
+// function Chat({ route }) {
+//   const [messages, setMessages] = useState([]);
+//   const [modal, setModal] = useState(false);
+//   const [uploading, setUploading] = useState(false);
+//   const [recording, setRecording] = useState(null);
+//   const [isRecording, setIsRecording] = useState(false);
+//   const [recordingDuration, setRecordingDuration] = useState(0);
+
+//   useEffect(() => {
+//     const unsubscribe = onSnapshot(doc(database, 'chats', route.params.id), (document) => {
+//       setMessages(
+//         document.data().messages.map((message) => ({
+//           ...message,
+//           createdAt: message.createdAt.toDate(),
+//           image: message.image ?? '',
+//           audio: message.audio ?? '',
+//         }))
+//       );
+//     });
+
+//     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+//       //  Dismiss the keyboard
+//       Keyboard.dismiss();
+//       //  If the emoji panel is open, close it
+//       if (modal) {
+//         setModal(false);
+//         return true;
+//       }
+//       return false;
+//     });
+
+//     //  Dismiss the emoji panel when the keyboard is shown
+//     const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+//       if (modal) setModal(false);
+//     });
+
+//     // Cleanup
+//     return () => {
+//       unsubscribe();
+//       backHandler.remove();
+//       keyboardDidShowListener.remove();
+//     };
+//   }, [route.params.id, modal]);
+
+//   // Handle keyboard events to keep input toolbar visible
+//   useEffect(() => {
+//     const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
+//       // Ensure input toolbar stays visible when keyboard appears
+//     });
+
+//     const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+//       // Handle keyboard hide if needed
+//     });
+
+//     return () => {
+//       keyboardDidShowListener.remove();
+//       keyboardDidHideListener.remove();
+//     };
+//   }, []);
+
+//   const onSend = useCallback(
+//     async (m = []) => {
+//       // Get messages
+//       const chatDocRef = doc(database, 'chats', route.params.id);
+//       const chatDocSnap = await getDoc(chatDocRef);
+
+//       const chatData = chatDocSnap.data();
+//       const data = chatData.messages.map((message) => ({
+//         ...message,
+//         createdAt: message.createdAt.toDate(),
+//         image: message.image ?? '',
+//         audio: message.audio ?? '',
+//       }));
+
+//       // Process message for privacy
+//       const messageToSend = m[0];
+//       let processedMessage = { ...messageToSend };
+
+//       // Only process text messages for privacy (not images or audio)
+//       if (messageToSend.text && !messageToSend.image && !messageToSend.audio) {
+//         const privacyResult = processMessageForPrivacy(messageToSend.text);
+        
+//         processedMessage = {
+//           ...messageToSend,
+//           text: privacyResult.masked, // Display masked text
+//           originalText: messageToSend.text, // Keep original for decryption
+//           isSensitive: privacyResult.isSensitive,
+//           encryptedText: privacyResult.encrypted,
+//           needsDecryption: privacyResult.needsDecryption,
+//         };
+//       }
+
+//       // Attach new message
+//       const messagesWillSend = [{ ...processedMessage, sent: true, received: false }];
+//       const chatMessages = GiftedChat.append(data, messagesWillSend);
+
+//       setDoc(
+//         doc(database, 'chats', route.params.id),
+//         {
+//           messages: chatMessages,
+//           lastUpdated: Date.now(),
+//         },
+//         { merge: true }
+//       );
+//     },
+//     [route.params.id]
+//   );
+
+//   const pickImage = async () => {
+//     const result = await ImagePicker.launchImageLibraryAsync({
+//       mediaTypes: ['images'],
+//       allowsEditing: true,
+//       quality: 1,
+//     });
+
+//     if (!result.canceled) {
+//       await uploadImageAsync(result.assets[0].uri);
+//     }
+//   };
+
+//   const startRecording = async () => {
+//     try {
+//       const permission = await Audio.requestPermissionsAsync();
+//       if (permission.status !== 'granted') {
+//         Alert.alert('Permission required', 'Please grant microphone permission to record voice messages.');
+//         return;
+//       }
+
+//       await Audio.setAudioModeAsync({
+//         allowsRecordingIOS: true,
+//         playsInSilentModeIOS: true,
+//       });
+
+//       const { recording } = await Audio.Recording.createAsync(
+//         Audio.RecordingOptionsPresets.HIGH_QUALITY
+//       );
+//       setRecording(recording);
+//       setIsRecording(true);
+//       setRecordingDuration(0);
+
+//       // Start duration counter
+//       const interval = setInterval(() => {
+//         setRecordingDuration((prev) => prev + 1);
+//       }, 1000);
+
+//       // Store interval ID to clear later
+//       recording._interval = interval;
+//     } catch (err) {
+//       console.error('Failed to start recording', err);
+//       Alert.alert('Error', 'Failed to start recording');
+//     }
+//   };
+
+//   const stopRecording = async () => {
+//     if (!recording) return;
+
+//     try {
+//       setIsRecording(false);
+//       clearInterval(recording._interval);
+//       await recording.stopAndUnloadAsync();
+//       const uri = recording.getURI();
+//       setRecording(null);
+//       setRecordingDuration(0);
+
+//       if (uri) {
+//         await uploadVoiceAsync(uri);
+//       }
+//     } catch (err) {
+//       console.error('Failed to stop recording', err);
+//       Alert.alert('Error', 'Failed to stop recording');
+//     }
+//   };
+
+//   const uploadVoiceAsync = async (uri) => {
+//     setUploading(true);
+    
+//     try {
+//       let blob;
+      
+//       if (Platform.OS === 'web') {
+//         const response = await fetch(uri);
+//         blob = await response.blob();
+//       } else {
+//         blob = await new Promise((resolve, reject) => {
+//           const xhr = new XMLHttpRequest();
+//           xhr.onload = () => resolve(xhr.response);
+//           xhr.onerror = () => reject(new TypeError('Network request failed'));
+//           xhr.responseType = 'blob';
+//           xhr.open('GET', uri, true);
+//           xhr.send(null);
+//         });
+//       }
+
+//       const randomString = uuid.v4();
+//       const fileRef = ref(storage, `voice_${randomString}.m4a`);
+//       const uploadTask = uploadBytesResumable(fileRef, blob);
+
+//       uploadTask.on(
+//         'state_changed',
+//         (snapshot) => {
+//           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+//           console.log(`Voice upload is ${progress}% done`);
+//         },
+//         (error) => {
+//           console.error('Voice upload error:', error);
+//           setUploading(false);
+//         },
+//         async () => {
+//           try {
+//             const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+//             setUploading(false);
+//             onSend([
+//               {
+//                 _id: randomString,
+//                 createdAt: new Date(),
+//                 text: '',
+//                 audio: downloadUrl,
+//                 user: {
+//                   _id: auth?.currentUser?.email,
+//                   name: auth?.currentUser?.displayName,
+//                   avatar: 'https://i.pravatar.cc/300',
+//                 },
+//               },
+//             ]);
+//           } catch (error) {
+//             console.error('Error getting voice download URL:', error);
+//             setUploading(false);
+//           }
+//         }
+//       );
+//     } catch (error) {
+//       console.error('Error uploading voice:', error);
+//       setUploading(false);
+//     }
+//   };
+
+//   const uploadImageAsync = async (uri) => {
+//     setUploading(true);
+    
+//     try {
+//       let blob;
+      
+//       if (Platform.OS === 'web') {
+//         // For web, convert the URI to a blob using fetch
+//         const response = await fetch(uri);
+//         blob = await response.blob();
+//       } else {
+//         // For mobile, use the existing XMLHttpRequest method
+//         blob = await new Promise((resolve, reject) => {
+//           const xhr = new XMLHttpRequest();
+//           xhr.onload = () => resolve(xhr.response);
+//           xhr.onerror = () => reject(new TypeError('Network request failed'));
+//           xhr.responseType = 'blob';
+//           xhr.open('GET', uri, true);
+//           xhr.send(null);
+//         });
+//       }
+
+//       const randomString = uuid.v4();
+//       const fileRef = ref(storage, randomString);
+//       const uploadTask = uploadBytesResumable(fileRef, blob);
+
+//       uploadTask.on(
+//         'state_changed',
+//         (snapshot) => {
+//           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+//           console.log(`Upload is ${progress}% done`);
+//         },
+//         (error) => {
+//           // Handle unsuccessful uploads
+//           console.error('Upload error:', error);
+//           setUploading(false);
+//         },
+//         async () => {
+//           try {
+//             const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+//             setUploading(false);
+//             onSend([
+//               {
+//                 _id: randomString,
+//                 createdAt: new Date(),
+//                 text: '',
+//                 image: downloadUrl,
+//                 user: {
+//                   _id: auth?.currentUser?.email,
+//                   name: auth?.currentUser?.displayName,
+//                   avatar: 'https://i.pravatar.cc/300',
+//                 },
+//               },
+//             ]);
+//           } catch (error) {
+//             console.error('Error getting download URL:', error);
+//             setUploading(false);
+//           }
+//         }
+//       );
+//     } catch (error) {
+//       console.error('Error uploading image:', error);
+//       setUploading(false);
+//     }
+//   };
+
+//   const handleEmojiPanel = useCallback(() => {
+//     setModal((prevModal) => {
+//       if (prevModal) {
+//         // If the modal is already open, close it
+//         Keyboard.dismiss();
+//         return false;
+//       }
+//       // If the modal is closed, open it
+//       Keyboard.dismiss();
+//       return true;
+//     });
+//   }, []);
+
+//   return (
+//     <View style={styles.container}>
+//       {uploading && RenderLoadingUpload()}
+//       <View style={styles.chatWrapper}>
+//         <View style={styles.chatContent}>
+//         <GiftedChat
+//           messages={messages}
+//           showAvatarForEveryMessage={false}
+//           showUserAvatar={false}
+//           onSend={(messagesArr) => onSend(messagesArr)}
+//           imageStyle={{ height: 212, width: 212 }}
+//           messagesContainerStyle={{ 
+//             backgroundColor: colors.background,
+//             paddingBottom: Platform.OS === 'web' ? 20 : 80,
+//             paddingTop: 10,
+//             flexGrow: 1,
+//           }}
+//           textInputStyle={{ 
+//             backgroundColor: colors.backgroundSecondary, 
+//             borderRadius: 24,
+//             borderWidth: 1.5,
+//             borderColor: colors.border,
+//             paddingHorizontal: 16,
+//             paddingVertical: 12,
+//             fontSize: 16,
+//             maxHeight: 100,
+//             color: colors.text,
+//             marginHorizontal: 4,
+//             ...(Platform.OS === 'web' && {
+//               outline: 'none',
+//               overflowY: 'auto',
+//             }),
+//           }}
+//           user={{
+//             _id: auth?.currentUser?.email,
+//             name: auth?.currentUser?.displayName,
+//             avatar: 'https://i.pravatar.cc/300',
+//           }}
+//           renderBubble={(props) => RenderMessage(props)}
+//           renderSend={(props) => RenderAttach({ ...props, onPress: pickImage })}
+//           renderUsernameOnMessage
+//           renderAvatarOnTop
+//           renderInputToolbar={(props) => RenderInputToolbar(props, handleEmojiPanel, isRecording, recordingDuration, startRecording, stopRecording)}
+//           minInputToolbarHeight={Platform.OS === 'web' ? 76 : 72}
+//           onPressActionButton={handleEmojiPanel}
+//           renderLoading={RenderLoading}
+//           alwaysShowSend
+//           placeholder="Type a message..."
+//           isKeyboardInternallyHandled={false}
+//           bottomOffset={Platform.OS === 'web' ? 0 : 36}
+//           listViewProps={{
+//             showsVerticalScrollIndicator: true,
+//             contentContainerStyle: { 
+//               flexGrow: 1,
+//               paddingBottom: Platform.OS === 'web' ? 20 : 80,
+//             },
+//             style: {
+//               flex: 1,
+//               ...(Platform.OS === 'web' && {
+//                 overflowY: 'scroll',
+//                 height: '100%',
+//               }),
+//             },
+//             nestedScrollEnabled: true,
+//             scrollEnabled: true,
+//             bounces: true,
+//             removeClippedSubviews: false,
+//             keyboardShouldPersistTaps: 'handled',
+//           }}
+//           scrollToBottom
+//           infiniteScroll
+//         />
+//         </View>
+//       </View>
+
+//       {modal && (
+//         <EmojiModal
+//           onPressOutside={handleEmojiPanel}
+//           modalStyle={styles.emojiModal}
+//           containerStyle={styles.emojiContainerModal}
+//           backgroundStyle={styles.emojiBackgroundModal}
+//           columns={5}
+//           emojiSize={66}
+//           activeShortcutColor={colors.primary}
+//           onEmojiSelected={(emoji) => {
+//             onSend([
+//               {
+//                 _id: uuid.v4(),
+//                 createdAt: new Date(),
+//                 text: emoji,
+//                 user: {
+//                   _id: auth?.currentUser?.email,
+//                   name: auth?.currentUser?.displayName,
+//                   avatar: 'https://i.pravatar.cc/300',
+//                 },
+//               },
+//             ]);
+//           }}
+//         />
+//       )}
+//     </View>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   actionsContainer: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     gap: 8,
+//   },
+//   container: {
+//     flex: 1,
+//     backgroundColor: colors.background,
+//     width: '100%',
+//     height: '100%',
+//     ...(Platform.OS === 'web' && {
+//       display: 'flex',
+//       flexDirection: 'column',
+//       minHeight: '100vh',
+//       maxHeight: '100vh',
+//       overflow: 'hidden',
+//     }),
+//   },
+//   chatWrapper: {
+//     flex: 1,
+//     width: '100%',
+//     ...(Platform.OS === 'web' && {
+//       display: 'flex',
+//       flexDirection: 'column',
+//       height: '100%',
+//       overflow: 'hidden',
+//       position: 'relative',
+//     }),
+//   },
+//   chatContent: {
+//     flex: 1,
+//     width: '100%',
+//     ...(Platform.OS === 'web' && {
+//       display: 'flex',
+//       flexDirection: 'column',
+//       flex: 1,
+//       minHeight: 0,
+//       overflow: 'hidden',
+//       position: 'relative',
+//     }),
+//   },
+//   audioButton: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: colors.messageSent,
+//     borderRadius: 20,
+//     paddingHorizontal: 16,
+//     paddingVertical: 14,
+//     minWidth: 200,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.1,
+//     shadowRadius: 4,
+//     elevation: 3,
+//   },
+//   audioDuration: {
+//     color: colors.textInverse,
+//     fontSize: 12,
+//     opacity: 0.85,
+//     marginTop: 2,
+//   },
+//   audioMessageContainer: {
+//     marginVertical: 6,
+//   },
+//   audioText: {
+//     color: colors.textInverse,
+//     fontSize: 15,
+//     fontWeight: '600',
+//     marginLeft: 10,
+//   },
+//   audioTextContainer: {
+//     flex: 1,
+//     marginLeft: 10,
+//   },
+//   iconButton: {
+//     width: 36,
+//     height: 36,
+//     borderRadius: 18,
+//     backgroundColor: colors.backgroundSecondary,
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     borderWidth: 1,
+//     borderColor: colors.border,
+//   },
+//   addImageIcon: {
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     marginRight: 4,
+//   },
+//   emojiBackgroundModal: {
+//     backgroundColor: colors.backgroundSecondary,
+//   },
+//   emojiContainerModal: {
+//     height: 348,
+//     width: 396,
+//     borderRadius: 20,
+//   },
+//   emojiIcon: {
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     marginRight: 4,
+//   },
+//   emojiModal: {
+//     borderRadius: 20,
+//   },
+//   inputToolbarWrapper: {
+//     flexDirection: 'row',
+//     alignItems: 'flex-end',
+//     paddingVertical: 12,
+//     paddingHorizontal: 12,
+//     paddingBottom: Platform.OS === 'web' ? 16 : 12,
+//     backgroundColor: colors.backgroundSecondary,
+//     borderTopWidth: 1,
+//     borderTopColor: colors.border,
+//     minHeight: 76,
+//     width: '100%',
+//     zIndex: 1000,
+//     flexShrink: 0,
+//     ...(Platform.OS === 'web' && {
+//       position: 'fixed',
+//       bottom: 0,
+//       left: 0,
+//       right: 0,
+//       marginBottom: 0,
+//       boxShadow: '0 -4px 20px rgba(0,0,0,0.08)',
+//       backdropFilter: 'blur(10px)',
+//       backgroundColor: 'rgba(255, 255, 255, 0.95)',
+//     }),
+//   },
+//   inputToolbar: {
+//     alignItems: 'center',
+//     backgroundColor: colors.backgroundSecondary,
+//     borderColor: colors.border,
+//     borderRadius: 24,
+//     borderWidth: 1.5,
+//     flex: 1,
+//     flexDirection: 'row',
+//     marginHorizontal: 4,
+//     paddingHorizontal: 12,
+//     paddingVertical: 8,
+//     minHeight: 48,
+//     maxHeight: 100,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 1 },
+//     shadowOpacity: 0.05,
+//     shadowRadius: 3,
+//     elevation: 1,
+//   },
+//   loadingContainer: {
+//     alignItems: 'center',
+//     flex: 1,
+//     justifyContent: 'center',
+//   },
+//   loadingContainerUpload: {
+//     alignItems: 'center',
+//     backgroundColor: 'rgba(15, 23, 42, 0.6)',
+//     backdropFilter: 'blur(4px)',
+//     bottom: 0,
+//     justifyContent: 'center',
+//     left: 0,
+//     position: 'absolute',
+//     right: 0,
+//     top: 0,
+//     zIndex: 9999,
+//   },
+//   loadingCard: {
+//     backgroundColor: colors.backgroundSecondary,
+//     borderRadius: 16,
+//     padding: 24,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 4 },
+//     shadowOpacity: 0.2,
+//     shadowRadius: 8,
+//     elevation: 8,
+//   },
+//   recordingPulse: {
+//     width: 8,
+//     height: 8,
+//     borderRadius: 4,
+//     backgroundColor: colors.error,
+//     marginRight: 6,
+//   },
+//   recordingIcon: {
+//     backgroundColor: colors.error,
+//   },
+//   recordingIconButton: {
+//     backgroundColor: colors.error,
+//     borderColor: colors.error,
+//   },
+//   recordingIndicator: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     marginLeft: 8,
+//     paddingHorizontal: 10,
+//     paddingVertical: 6,
+//     backgroundColor: colors.backgroundSecondary,
+//     borderRadius: 16,
+//     borderWidth: 1,
+//     borderColor: colors.error,
+//   },
+//   recordingText: {
+//     color: colors.error,
+//     fontSize: 12,
+//     fontWeight: '600',
+//     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+//   },
+//   scrollToBottomStyle: {
+//     borderColor: colors.border,
+//     borderRadius: 28,
+//     borderWidth: 1.5,
+//     bottom: 12,
+//     height: 48,
+//     position: 'absolute',
+//     right: 12,
+//     width: 48,
+//     backgroundColor: colors.backgroundSecondary,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.1,
+//     shadowRadius: 4,
+//     elevation: 3,
+//   },
+//   sendIconContainer: {
+//     alignItems: 'center',
+//     backgroundColor: colors.primary,
+//     borderRadius: 24,
+//     height: 48,
+//     width: 48,
+//     justifyContent: 'center',
+//     marginLeft: 8,
+//     shadowColor: colors.primary,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.3,
+//     shadowRadius: 4,
+//     elevation: 3,
+//   },
+//   voiceIcon: {
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//     marginRight: 4,
+//   },
+//   sensitiveMessageContainer: {
+//     marginVertical: 4,
+//   },
+//   sensitiveControls: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     alignItems: 'center',
+//     marginTop: 6,
+//     paddingHorizontal: 10,
+//   },
+//   sensitiveIndicator: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     gap: 6,
+//     paddingHorizontal: 8,
+//     paddingVertical: 4,
+//     backgroundColor: colors.backgroundSecondary,
+//     borderRadius: 12,
+//     borderWidth: 1,
+//     borderColor: colors.error,
+//   },
+//   sensitiveText: {
+//     fontSize: 11,
+//     color: colors.error,
+//     fontWeight: '600',
+//   },
+//   decryptButton: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: colors.primary,
+//     paddingHorizontal: 12,
+//     paddingVertical: 6,
+//     borderRadius: 14,
+//     gap: 6,
+//     shadowColor: colors.primary,
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.2,
+//     shadowRadius: 3,
+//     elevation: 2,
+//   },
+//   decryptButtonText: {
+//     color: colors.textInverse,
+//     fontSize: 11,
+//     fontWeight: '600',
+//   },
+//   maskButton: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: colors.textSecondary,
+//     paddingHorizontal: 12,
+//     paddingVertical: 6,
+//     borderRadius: 14,
+//     gap: 6,
+//   },
+//   maskButtonText: {
+//     color: colors.textInverse,
+//     fontSize: 11,
+//     fontWeight: '600',
+//   },
+// });
+
+// Chat.propTypes = {
+//   route: PropTypes.object.isRequired,
+// };
+
+// export default Chat;
+
+
+
