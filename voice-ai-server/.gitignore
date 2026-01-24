@@ -1,0 +1,8 @@
+node_modules/
+android/build/
+ios/build/
+.expo/
+.env
+venv/
+.venv/
+__pycache__/

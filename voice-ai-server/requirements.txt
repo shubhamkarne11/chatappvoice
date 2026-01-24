@@ -1,0 +1,23 @@
+# Web Framework
+flask==3.0.0
+flask-cors==4.0.0
+
+# Deep Learning (UPDATED - Latest versions!)
+torch>=2.5.0
+torchaudio>=2.5.0
+
+# Audio Processing
+librosa==0.10.1
+soundfile==0.12.1
+pydub==0.25.1
+audioread==3.0.1
+
+# Numerical Computing
+numpy>=1.24.0
+scipy>=1.11.0
+
+# Security
+cryptography==41.0.5
+
+# Utilities
+python-dotenv==1.0.0
