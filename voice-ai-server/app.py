@@ -10,6 +10,7 @@ import io
 import os
 import shutil
 import subprocess
+import tempfile
 from models.preprocessing import apply_preprocessing
 from models.voice_masking import apply_voice_masking
 
@@ -117,6 +118,60 @@ else:
 ENCRYPTION_KEY = Fernet.generate_key()
 cipher_suite = Fernet(ENCRYPTION_KEY)
 
+def convert_to_wav_with_ffmpeg(input_bytes, original_filename):
+    """
+    Convert audio bytes to WAV using native ffmpeg subprocess.
+    Returns bytes of the WAV file.
+    """
+    if not FFMPEG_PATH:
+        raise Exception("ffmpeg not found, cannot convert audio")
+
+    # Create temp files
+    ext = original_filename.split('.')[-1] if '.' in original_filename else 'webm'
+    
+    with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as input_tmp:
+        input_tmp.write(input_bytes)
+        input_path = input_tmp.name
+        
+    output_path = input_path + '.wav'
+    
+    try:
+        # Run ffmpeg
+        # -y: overwrite output
+        # -ac 1: mono (optional, but good for voice)
+        cmd = [
+            FFMPEG_PATH, 
+            '-y', 
+            '-i', input_path,
+            '-ac', '1',      # Force mono
+            '-ar', '22050',  # Force 22050Hz sample rate (standard for voice/librosa defaults)
+            output_path
+        ]
+        
+        print(f"🔄 Running native ffmpeg: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"❌ ffmpeg failed: {result.stderr}")
+            raise Exception(f"ffmpeg conversion failed: {result.stderr}")
+            
+        if not os.path.exists(output_path):
+            raise Exception("ffmpeg ran but output file not created")
+            
+        with open(output_path, 'rb') as f:
+            wav_bytes = f.read()
+            
+        print(f"✅ Converted to WAV via native ffmpeg: {len(wav_bytes)} bytes")
+        return wav_bytes
+        
+    finally:
+        # Cleanup
+        try:
+            if os.path.exists(input_path): os.unlink(input_path)
+            if os.path.exists(output_path): os.unlink(output_path)
+        except Exception as e:
+            print(f"⚠️ Cleanup warning: {e}")
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({
@@ -165,141 +220,19 @@ def process_voice():
         
         # If webm/mp3/m4a, we MUST convert first (soundfile can't handle these)
         if file_extension in ['webm', 'mp3', 'm4a', 'mp4', 'aac']:
-            print(f"🔄 Detected {file_extension} format - converting to WAV first (requires ffmpeg)...")
+            print(f"🔄 Detected {file_extension} format - converting to WAV with native ffmpeg...")
             
-            # Try pydub first (most reliable if ffmpeg is installed)
             try:
-                from pydub import AudioSegment
-                print("🔄 Using pydub to convert...")
+                converted_bytes = convert_to_wav_with_ffmpeg(audio_bytes, audio_file.filename)
                 
-                # Check if ffmpeg is available
-                if not FFMPEG_PATH:
-                    # Try to find it again
-                    found_ffmpeg = find_ffmpeg()
-                    if not found_ffmpeg:
-                        raise Exception("ffmpeg not found. Please install ffmpeg and add it to PATH.")
+                # Use soundfile directly to avoid librosa -> audioread dependency
+                # ffmpeg already ensured it's a WAV with 22050Hz mono
+                audio_data, sr = sf.read(io.BytesIO(converted_bytes))
+                print(f"✅ Audio loaded with soundfile: {len(audio_data)} samples at {sr}Hz sample rate")
                 
-                temp_buffer = io.BytesIO(audio_bytes)
-                # Use ffmpeg_path if available (pydub should use it via our patch)
-                if FFMPEG_PATH:
-                    print(f"🔄 Converting using ffmpeg at: {FFMPEG_PATH}")
-                    # pydub should now use our patched which() function
-                    audio_segment = AudioSegment.from_file(
-                        temp_buffer, 
-                        format=file_extension
-                    )
-                else:
-                    # Try to find ffmpeg again
-                    found_ffmpeg = find_ffmpeg()
-                    if found_ffmpeg:
-                        os.environ['PATH'] = os.path.dirname(found_ffmpeg) + os.pathsep + os.environ.get('PATH', '')
-                        audio_segment = AudioSegment.from_file(temp_buffer, format=file_extension)
-                    else:
-                        raise Exception("ffmpeg not found. Please install ffmpeg.")
-                
-                # Export to wav in memory
-                wav_buffer = io.BytesIO()
-                if FFMPEG_PATH:
-                    audio_segment.export(wav_buffer, format="wav")
-                else:
-                    audio_segment.export(wav_buffer, format="wav")
-                wav_buffer.seek(0)
-                converted_bytes = wav_buffer.read()
-                print(f"✅ Converted {file_extension} to WAV: {len(converted_bytes)} bytes")
-                
-                # Now load with librosa (should work now)
-                audio_data, sr = librosa.load(io.BytesIO(converted_bytes), sr=None)
-                print(f"✅ Audio loaded: {len(audio_data)} samples at {sr}Hz sample rate")
-                
-            except ImportError:
-                print("⚠️  pydub not available, trying audioread...")
-                # Fall back to audioread
-                import audioread
-                import tempfile
-                with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-                    temp_file.write(audio_bytes)
-                    temp_file_path = temp_file.name
-                
-                try:
-                    with audioread.audio_open(temp_file_path) as f:
-                        sr = f.samplerate
-                        audio_chunks = []
-                        for frame in f:
-                            # audioread returns raw PCM bytes - need to decode based on format
-                            # Try int16 first (most common)
-                            try:
-                                frame_data = np.frombuffer(frame, dtype=np.int16).astype(np.float32) / 32768.0
-                            except:
-                                # Try int32 if int16 fails
-                                try:
-                                    frame_data = np.frombuffer(frame, dtype=np.int32).astype(np.float32) / 2147483648.0
-                                except:
-                                    # Try float32 directly
-                                    frame_data = np.frombuffer(frame, dtype=np.float32)
-                            
-                            if f.channels > 1:
-                                frame_data = frame_data.reshape(-1, f.channels)
-                                frame_data = np.mean(frame_data, axis=1)  # Convert to mono
-                            audio_chunks.append(frame_data)
-                        audio_data = np.concatenate(audio_chunks)
-                    print(f"✅ Audio loaded with audioread: {len(audio_data)} samples at {sr}Hz sample rate")
-                finally:
-                    try:
-                        os.unlink(temp_file_path)
-                    except:
-                        pass
-                        
-            except Exception as convert_error:
-                print(f"❌ pydub conversion failed: {convert_error}")
-                # Try audioread as fallback
-                print("🔄 Trying audioread as fallback...")
-                try:
-                    import audioread
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{file_extension}') as temp_file:
-                        temp_file.write(audio_bytes)
-                        temp_file_path = temp_file.name
-                    
-                    try:
-                        with audioread.audio_open(temp_file_path) as f:
-                            sr = f.samplerate
-                            audio_chunks = []
-                            for frame in f:
-                                # Try int16 first (most common PCM format)
-                                try:
-                                    frame_data = np.frombuffer(frame, dtype=np.int16).astype(np.float32) / 32768.0
-                                except:
-                                    try:
-                                        frame_data = np.frombuffer(frame, dtype=np.int32).astype(np.float32) / 2147483648.0
-                                    except:
-                                        frame_data = np.frombuffer(frame, dtype=np.float32)
-                                
-                                if f.channels > 1:
-                                    frame_data = frame_data.reshape(-1, f.channels)
-                                    frame_data = np.mean(frame_data, axis=1)
-                                audio_chunks.append(frame_data)
-                            audio_data = np.concatenate(audio_chunks)
-                        print(f"✅ Audio loaded with audioread: {len(audio_data)} samples at {sr}Hz sample rate")
-                    finally:
-                        try:
-                            os.unlink(temp_file_path)
-                        except:
-                            pass
-                except Exception as audioread_error:
-                    error_msg = (
-                        f"❌ Could not process {file_extension} file.\n\n"
-                        f"Errors:\n"
-                        f"- pydub: {str(convert_error)}\n"
-                        f"- audioread: {str(audioread_error)}\n\n"
-                        f"💡 SOLUTION: Install ffmpeg\n"
-                        f"   Windows: Download from https://www.gyan.dev/ffmpeg/builds/\n"
-                        f"   Or use: choco install ffmpeg\n"
-                        f"   Then add ffmpeg to PATH and restart server\n"
-                        f"   Linux: sudo apt-get install ffmpeg\n"
-                        f"   Mac: brew install ffmpeg"
-                    )
-                    print(error_msg)
-                    raise Exception(error_msg)
+            except Exception as e:
+                print(f"❌ Conversion/Loading failed: {str(e)}")
+                raise Exception(f"Could not convert/load audio: {str(e)}")
         
         else:
             # For WAV, FLAC, OGG - try librosa directly

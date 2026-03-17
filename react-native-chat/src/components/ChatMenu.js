@@ -9,8 +9,16 @@ import { Menu, MenuOption, MenuOptions, MenuTrigger } from 'react-native-popup-m
 import { auth, database } from '../config/firebase';
 import { colors } from '../config/constants';
 
-const ChatMenu = ({ chatName, chatId }) => {
+const ChatMenu = ({ chatName, chatId, onStartSecretSession, onEndSecretSession }) => {
   const navigation = useNavigation();
+
+  const handleStartSecretChat = () => {
+    if (onStartSecretSession) {
+      onStartSecretSession();
+    } else {
+      Alert.alert('Error', 'Secret session feature not available.');
+    }
+  };
 
   const handleDeleteChat = () => {
     Alert.alert(
@@ -85,6 +93,33 @@ const ChatMenu = ({ chatName, chatId }) => {
         </View>
       </MenuTrigger>
       <MenuOptions customStyles={menuOptionsStyles}>
+        {/* Start Secret Session */}
+        {/* Start/End Secret Session */}
+        {onEndSecretSession ? (
+          <MenuOption
+            onSelect={onEndSecretSession}
+            style={styles.optionRow}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: colors.accent + '15' }]}>
+              <Ionicons name="lock-open" size={20} color={colors.accent} />
+            </View>
+            <Text style={[styles.optionText, { color: colors.accent, fontWeight: '600' }]}>End Secret Session</Text>
+          </MenuOption>
+        ) : (
+          <MenuOption
+            onSelect={handleStartSecretChat}
+            style={styles.optionRow}
+          >
+            <View style={[styles.iconContainer, { backgroundColor: colors.accent + '15' }]}>
+              <Ionicons name="lock-closed" size={20} color={colors.accent} />
+            </View>
+            <Text style={[styles.optionText, { color: colors.accent, fontWeight: '600' }]}>Start Secret Session</Text>
+          </MenuOption>
+        )}
+
+        {/* Divider */}
+        <View style={styles.divider} />
+
         {/* Chat Info */}
         <MenuOption
           onSelect={() => navigation.navigate('ChatInfo', { chatId, chatName })}
@@ -208,6 +243,8 @@ const menuOptionsStyles = {
 ChatMenu.propTypes = {
   chatName: PropTypes.string.isRequired,
   chatId: PropTypes.string.isRequired,
+  onStartSecretSession: PropTypes.func,
+  onEndSecretSession: PropTypes.func,
 };
 
 export default ChatMenu;

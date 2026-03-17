@@ -2,7 +2,7 @@ import PropTypes from 'prop-types';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useMemo, useState, useEffect, createContext } from 'react';
-import { generateSecureKey, getSensitiveKeywords } from '../utils/privacyUtils';
+import { generateSecureKey, getSensitiveKeywords, SECRET_KEY } from '../utils/privacyUtils';
 
 export const EncryptionContext = createContext();
 
@@ -14,20 +14,9 @@ export const EncryptionProvider = ({ children }) => {
   useEffect(() => {
     const initializeEncryption = async () => {
       try {
-        // Get or generate encryption key - IMPORTANT: Key must NEVER change once set
-        let storedKey = await AsyncStorage.getItem('encryption_key');
-        
-        if (!storedKey) {
-          // Only generate if key doesn't exist (first time setup)
-          storedKey = generateSecureKey();
-          await AsyncStorage.setItem('encryption_key', storedKey);
-          console.log('🔐 New encryption key generated (first time setup)');
-        } else {
-          // Key exists - use it (NEVER regenerate automatically)
-          console.log('🔐 Encryption key loaded from storage (persistent)');
-        }
-        
-        setEncryptionKey(storedKey);
+        // Initialize with hardcoded key directly
+        console.log('🔐 Using enforced hardcoded encryption key');
+        setEncryptionKey(SECRET_KEY);
 
         // Load custom keywords
         const storedKeywords = await AsyncStorage.getItem('custom_keywords');
@@ -111,31 +100,14 @@ export const EncryptionProvider = ({ children }) => {
 
   const regenerateKey = async () => {
     try {
-      // WARNING: Regenerating key will make ALL old messages unreadable
       Alert.alert(
-        '⚠️ Warning: Regenerate Encryption Key?',
-        'This will make ALL your previous encrypted messages unreadable. This action cannot be undone.\n\nOnly do this if you want to start fresh with a new key.',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Regenerate (I Understand)',
-            style: 'destructive',
-            onPress: async () => {
-              const newKey = generateSecureKey();
-              setEncryptionKey(newKey);
-              await AsyncStorage.setItem('encryption_key', newKey);
-              console.log('🔐 New encryption key generated (old messages will be unreadable)');
-              Alert.alert('Key Regenerated', 'Your encryption key has been changed. Old messages cannot be decrypted.');
-            },
-          },
-        ]
+        'Action Disabled',
+        'Encryption key is now managed centrally and cannot be changed by the user. This ensures consistent message decryption across all devices.',
+        [{ text: 'OK' }]
       );
-      return false; // Don't regenerate without confirmation
+      return false;
     } catch (error) {
-      console.error('❌ Error regenerating key:', error);
+      console.error('❌ Error in regenerateKey:', error);
       return false;
     }
   };

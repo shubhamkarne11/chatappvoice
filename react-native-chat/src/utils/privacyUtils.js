@@ -55,7 +55,8 @@ const DEFAULT_KEYWORDS = [
 ];
 
 // Secret key for encryption (in production, this should be stored securely)
-const SECRET_KEY = 'your-secret-key-here-change-in-production';
+// Secret key for encryption (in production, this should be stored securely)
+export const SECRET_KEY = 'your-secret-key-here-change-in-production';
 
 /**
  * Detect if a message contains sensitive information
@@ -195,9 +196,11 @@ export const maskSensitiveData = (text, customKeywords = []) => {
  * @param {string} key - The encryption key (optional, uses default if not provided)
  * @returns {string} - The encrypted message
  */
-export const encryptMessage = (text, key = SECRET_KEY) => {
+export const encryptMessage = (text) => {
+  const key = SECRET_KEY;
   try {
     const encrypted = CryptoJS.AES.encrypt(text, key).toString();
+    console.log('[PrivacyUtils] Encrypting:', { text: text.substring(0, 20) + '...', key: key.substring(0, 5) + '...' });
     return encrypted;
   } catch (error) {
     console.error('Encryption error:', error);
@@ -211,11 +214,14 @@ export const encryptMessage = (text, key = SECRET_KEY) => {
  * @param {string} key - The decryption key (optional, uses default if not provided)
  * @returns {string} - The decrypted message
  */
-export const decryptMessage = (encryptedText, key = SECRET_KEY) => {
+export const decryptMessage = (encryptedText) => {
+  const key = SECRET_KEY;
+  // console.log('[PrivacyUtils] Decrypting:', { encryptedLength: encryptedText?.length, key: key.substring(0, 5) + '...' });
+  
   try {
     // Handle empty or invalid encrypted text
     if (!encryptedText || typeof encryptedText !== 'string') {
-      console.error('Invalid encrypted text provided');
+      console.error('Invalid encrypted text provided', encryptedText);
       return '[Decryption failed: Invalid input]';
     }
 
@@ -225,7 +231,7 @@ export const decryptMessage = (encryptedText, key = SECRET_KEY) => {
     
     // Check if decryption was successful (not empty and valid UTF-8)
     if (!decrypted || decrypted.trim().length === 0) {
-      console.error('Decryption resulted in empty string - possible wrong key or corrupted data');
+      console.error('Decryption resulted in empty string - possible wrong key or corrupted data. Key used:', key);
       return '[Decryption failed: Invalid key or corrupted data]';
     }
     

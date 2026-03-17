@@ -1,19 +1,20 @@
 //Fix 2
 import PropTypes from 'prop-types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import uuid from 'react-native-uuid';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Audio as ExpoAudio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import EmojiModal from 'react-native-emoji-modal';
-import React, { useState,useRef,useEffect, useCallback, useContext } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext, useLayoutEffect } from 'react';
 import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { Send, Bubble, GiftedChat, InputToolbar } from 'react-native-gifted-chat';
 import { ref, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 // import voiceAIService from '../utils/voiceAI';
 import {
   View,
-  Text, 
+  Text,
   TextInput,
   StyleSheet,
   TouchableOpacity,
@@ -29,13 +30,23 @@ import { colors } from '../config/constants';
 import { auth, database, storage } from '../config/firebase';
 import { EncryptionContext } from '../contexts/EncryptionContext';
 import { VoiceSettingsContext } from '../contexts/VoiceSettingsContext';
-import { 
-  detectSensitiveData, 
-  maskSensitiveData, 
-  encryptMessage, 
-  decryptMessage 
+import {
+  detectSensitiveData,
+  maskSensitiveData,
+  encryptMessage,
+  decryptMessage
 } from '../utils/privacyUtils';
-import voiceAIService from '../utils/voiceAI'; 
+import voiceAIService from '../utils/voiceAI';
+import SecretSessionModal from '../components/SecretSessionModal';
+import SecretMessageBubble from '../components/SecretMessageBubble';
+import ChatMenu from '../components/ChatMenu'; // ✅ ADD THIS
+import SecretHeaderTimer from '../components/SecretHeaderTimer';
+import SecretSessionInviteModal from '../components/SecretSessionInviteModal';
+import {
+  generateSalt,
+  generateSessionKey,
+  encryptSessionMessage
+} from '../utils/secretSessionUtils';
 
 const RenderLoadingUpload = () => (
   <View style={styles.loadingContainerUpload}>
@@ -132,7 +143,7 @@ const RenderBubble = (props) => (
   <Bubble
     {...props}
     wrapperStyle={{
-      right: { 
+      right: {
         backgroundColor: colors.messageSent,
         borderRadius: 20,
         borderTopRightRadius: 4,
@@ -147,7 +158,7 @@ const RenderBubble = (props) => (
         shadowRadius: 8,
         elevation: 5,
       },
-      left: { 
+      left: {
         backgroundColor: colors.messageReceived,
         borderRadius: 20,
         borderTopLeftRadius: 4,
@@ -231,7 +242,7 @@ const SensitiveMessageBubble = (props) => {
           text: isDecrypted ? decryptedText : currentMessage.text
         }}
         wrapperStyle={{
-          right: { 
+          right: {
             backgroundColor: colors.messageSent,
             borderRadius: 20,
             borderTopRightRadius: 4,
@@ -248,7 +259,7 @@ const SensitiveMessageBubble = (props) => {
             borderWidth: 2,
             borderColor: colors.error + '30',
           },
-          left: { 
+          left: {
             backgroundColor: colors.messageReceived,
             borderRadius: 20,
             borderTopLeftRadius: 4,
@@ -273,8 +284,8 @@ const SensitiveMessageBubble = (props) => {
           <Text style={styles.sensitiveText}>Encrypted</Text>
         </View>
         {!isDecrypted ? (
-          <TouchableOpacity 
-            style={styles.decryptButton} 
+          <TouchableOpacity
+            style={styles.decryptButton}
             onPress={handleDecrypt}
             activeOpacity={0.8}
           >
@@ -282,8 +293,8 @@ const SensitiveMessageBubble = (props) => {
             <Text style={styles.decryptButtonText}>Decrypt</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity 
-            style={styles.maskButton} 
+          <TouchableOpacity
+            style={styles.maskButton}
             onPress={handleMask}
             activeOpacity={0.8}
           >
@@ -296,29 +307,28 @@ const SensitiveMessageBubble = (props) => {
   );
 };
 
-const RenderMessage = (props, onPlayAudio) => {
+const RenderMessage = (props, onPlayAudio, secretSessionData, sessionKey, onUnlockRequest, isSender) => {
   const { currentMessage } = props;
-  
-  if (currentMessage.audio) {
-    const isEncryptedAudio =
-      currentMessage.audioEncrypted || currentMessage.audio?.startsWith('data:application/octet-stream');
 
+  // If this is a secret session audio message — route through SecretMessageBubble (locked)
+  if (currentMessage.audio && currentMessage.isSecretAudio) {
+    return (
+      <SecretMessageBubble
+        {...props}
+        isSender={isSender}
+        onPlayAudio={onPlayAudio}
+      />
+    );
+  }
+
+  // Normal audio message
+  if (currentMessage.audio) {
     return (
       <View style={styles.audioMessageContainer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.audioButton}
-          disabled={isEncryptedAudio}
           onPress={() => {
-            if (isEncryptedAudio) {
-              Alert.alert('Encrypted Audio', 'Please decrypt this voice message before playback.');
-              return;
-            }
-
-            if (onPlayAudio) {
-              onPlayAudio(currentMessage);
-            } else {
-              console.log('Play audio:', currentMessage.audio);
-            }
+            if (onPlayAudio) onPlayAudio(currentMessage);
           }}
           activeOpacity={0.8}
         >
@@ -326,19 +336,17 @@ const RenderMessage = (props, onPlayAudio) => {
             <Ionicons name="play" size={20} color={colors.textInverse} />
           </View>
           <View style={styles.audioTextContainer}>
-            <Text style={styles.audioText}>
-              {isEncryptedAudio ? 'Encrypted Voice Message' : 'Voice Message'}
-            </Text>
+            <Text style={styles.audioText}>Voice Message</Text>
             <Text style={styles.audioDuration}>Tap to play</Text>
           </View>
           <View style={styles.audioWaveform}>
             {[...Array(12)].map((_, i) => (
-              <View 
-                key={i} 
+              <View
+                key={i}
                 style={[
-                  styles.waveformBar, 
+                  styles.waveformBar,
                   { height: Math.random() * 20 + 8 }
-                ]} 
+                ]}
               />
             ))}
           </View>
@@ -347,11 +355,22 @@ const RenderMessage = (props, onPlayAudio) => {
     );
   }
 
+  // Handle secret session text messages
+  if (currentMessage.type === 'secret') {
+    return (
+      <SecretMessageBubble
+        {...props}
+        isSender={isSender}
+        onPlayAudio={onPlayAudio}
+      />
+    );
+  }
+
   // Handle sensitive/encrypted messages
   if (currentMessage.isSensitive && currentMessage.needsDecryption) {
     return <SensitiveMessageBubble {...props} />;
   }
-  
+
   return <RenderBubble {...props} />;
 };
 
@@ -403,41 +422,41 @@ const RenderInputToolbar = (props, handleEmojiPanel, isRecording, recordingDurat
 );
 
 const RenderActions = (handleEmojiPanel, isRecording, recordingDuration, startRecording, stopRecording) => (
-    <View style={styles.actionsContainer}>
-      <TouchableOpacity 
-        style={styles.emojiIcon} 
-        onPress={handleEmojiPanel}
-        activeOpacity={0.7}
-      >
-        <View style={styles.iconButton}>
-          <Ionicons name="happy-outline" size={22} color={colors.primary} />
-        </View>
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={[styles.voiceIcon, isRecording && styles.recordingIcon]} 
-        onPress={isRecording ? stopRecording : startRecording}
-        activeOpacity={0.7}
-      >
-        <View style={[styles.iconButton, isRecording && styles.recordingIconButton]}>
-          <Ionicons 
-            name={isRecording ? "stop-circle" : "mic-outline"} 
-            size={22} 
-            color={isRecording ? colors.textInverse : colors.primary} 
-          />
-        </View>
-      </TouchableOpacity>
-      
-      {isRecording && (
-        <View style={styles.recordingIndicator}>
-          <View style={styles.recordingPulse} />
-          <Text style={styles.recordingText}>
-            {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
+  <View style={styles.actionsContainer}>
+    <TouchableOpacity
+      style={styles.emojiIcon}
+      onPress={handleEmojiPanel}
+      activeOpacity={0.7}
+    >
+      <View style={styles.iconButton}>
+        <Ionicons name="happy-outline" size={22} color={colors.primary} />
+      </View>
+    </TouchableOpacity>
+
+    <TouchableOpacity
+      style={[styles.voiceIcon, isRecording && styles.recordingIcon]}
+      onPress={isRecording ? stopRecording : startRecording}
+      activeOpacity={0.7}
+    >
+      <View style={[styles.iconButton, isRecording && styles.recordingIconButton]}>
+        <Ionicons
+          name={isRecording ? "stop-circle" : "mic-outline"}
+          size={22}
+          color={isRecording ? colors.textInverse : colors.primary}
+        />
+      </View>
+    </TouchableOpacity>
+
+    {isRecording && (
+      <View style={styles.recordingIndicator}>
+        <View style={styles.recordingPulse} />
+        <Text style={styles.recordingText}>
+          {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+        </Text>
+      </View>
+    )}
+  </View>
+);
 
 function Chat({ route, navigation }) {
   const [messages, setMessages] = useState([]);
@@ -447,9 +466,19 @@ function Chat({ route, navigation }) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
 
+  // Secret Session State
+  const [secretSessionData, setSecretSessionData] = useState(null);
+  const [secretSessionModalVisible, setSecretSessionModalVisible] = useState(false);
+  const [secretSessionMode, setSecretSessionMode] = useState('start'); // start, extend, unlock
+  const [sessionKey, setSessionKey] = useState(null);
+  const [isSessionUnlocked, setIsSessionUnlocked] = useState(false);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [pendingInvite, setPendingInvite] = useState(null);
+
   const recordingIntervalRef = useRef(null);
   const soundRef = useRef(null);
   const webAudioRef = useRef(null);
+  const shownInvitationsRef = useRef(new Set()); // Track shown invitations by endTime
 
   const handlePlayAudio = useCallback(
     async (message) => {
@@ -546,7 +575,7 @@ function Chat({ route, navigation }) {
       }
       // Cleanup recording on unmount
       if (recording) {
-        recording.stopAndUnloadAsync().catch(() => {});
+        recording.stopAndUnloadAsync().catch(() => { });
         setRecording(null);
       }
     };
@@ -555,7 +584,7 @@ function Chat({ route, navigation }) {
   useEffect(() => {
     return () => {
       if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current.unloadAsync().catch(() => { });
         soundRef.current = null;
       }
 
@@ -572,10 +601,10 @@ function Chat({ route, navigation }) {
 
   // ✅ SAFETY CHECK: Get encryption context with defaults
   const encryptionContext = useContext(EncryptionContext);
-  const { 
+  const {
     encryptionKey = null,
     keywords = [],
-    encryptionEnabled = true 
+    encryptionEnabled = true
   } = encryptionContext || {};
 
   // ✅ Get voice settings context
@@ -593,9 +622,15 @@ function Chat({ route, navigation }) {
     voiceMaskingEnabled = true,
   } = voiceSettingsContext || {};
 
+  useEffect(() => {
+    if (secretSessionData && secretSessionData.isActive) {
+      // console.log("Session is active");
+    }
+  }, [secretSessionData]);
+
   // ✅ SAFETY CHECK: Validate route params
   const chatId = route?.params?.id;
-  
+
   if (!chatId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -608,86 +643,139 @@ function Chat({ route, navigation }) {
   }
 
 
+
+  // NOTE: We do NOT auto-load session key from storage anymore
+  // This was causing auto-decrypt with wrong keys from previous sessions
+  // Users must explicitly unlock by entering the password
+
   useEffect(() => {
-  // ✅ Safety check: chatId must exist
-  if (!chatId) {
-    console.error('❌ No chatId provided!');
-    return;
-  }
+    // ✅ Safety check: chatId must exist
+    if (!chatId) {
+      console.error('❌ No chatId provided!');
+      return;
+    }
 
-  console.log('🔄 Setting up chat listener for chatId:', chatId);
+    console.log('🔄 Setting up chat listener for chatId:', chatId);
 
-  // ✅ Subscribe to Firestore chat document
-  const unsubscribe = onSnapshot(
-    doc(database, 'chats', chatId),
-    (document) => {
-      if (document.exists()) {
-        const chatData = document.data();
-        
-        // ✅ Safety check: messages array exists
-        if (chatData && chatData.messages && Array.isArray(chatData.messages)) {
-          setMessages(
-            chatData.messages.map((message) => ({
-              ...message,
-              // ✅ Safe date conversion with fallback
-              createdAt: message.createdAt?.toDate 
-                ? message.createdAt.toDate() 
-                : new Date(),
-              // ✅ Safe optional fields
-              image: message.image || '',
-              audio: message.audio || '',
-            }))
-          );
-          console.log('✅ Messages loaded:', chatData.messages.length);
+    // Initial load handling and navigation parameter check
+    // This ensures we have the correct navigation params if we entered deep linked or directly
+
+    // ✅ Subscribe to Firestore chat document
+    const unsubscribe = onSnapshot(
+      doc(database, 'chats', chatId),
+      (document) => {
+        if (document.exists()) {
+          const chatData = document.data();
+
+          // ✅ Safety check: messages array exists
+          if (chatData && chatData.messages && Array.isArray(chatData.messages)) {
+            setMessages(
+              chatData.messages.map((message) => ({
+                ...message,
+                // ✅ Safe date conversion with fallback
+                createdAt: message.createdAt?.toDate
+                  ? message.createdAt.toDate()
+                  : new Date(),
+                // ✅ Safe optional fields
+                image: message.image || '',
+                audio: message.audio || '',
+              }))
+            );
+            console.log('✅ Messages loaded:', chatData.messages.length);
+          } else {
+            console.log('⚠️ No messages found in chat');
+            setMessages([]);
+          }
+
+          // Handle Secret Session Updates
+          if (chatData && chatData.secretSession) {
+            const session = chatData.secretSession;
+            const currentUserEmail = auth?.currentUser?.email;
+
+            if (session.isActive && Date.now() < session.endTime) {
+              // Check if this is a NEW session started by someone else
+              const sessionId = `${session.createdBy}_${session.endTime}`;
+              if (session.createdBy !== currentUserEmail &&
+                !shownInvitationsRef.current.has(sessionId) &&
+                !sessionKey) { // Only show if user hasn't unlocked yet
+                // Show invitation modal ONCE
+                setPendingInvite(session);
+                setInviteModalVisible(true);
+                shownInvitationsRef.current.add(sessionId); // Mark as shown
+              } else {
+                // This is our own session or we already accepted
+                setSecretSessionData(session);
+              }
+            } else {
+              // Session expired or inactive, BUT we keep the data (salt) to allow unlocking old messages
+              // unless it's explicitly cleared or null
+              if (session) {
+                console.log('🔒 Secret session inactive');
+                setSecretSessionData(session); // Keep session data for unlocking capabilities
+                // We DON'T clear the key immediately here, as the user might want to read old messages
+                // However, if we want "auto-lock" on expiry behavior:
+                // setSessionKey(null); 
+                // setIsSessionUnlocked(false);
+              } else {
+                setSecretSessionData(null);
+                setSessionKey(null);
+                setIsSessionUnlocked(false);
+              }
+            }
+          } else {
+            // No session data
+            if (secretSessionData) {
+              setSecretSessionData(null);
+              setSessionKey(null);
+              setIsSessionUnlocked(false);
+            }
+          }
+
         } else {
-          console.log('⚠️ No messages found in chat');
+          console.error('❌ Chat document does not exist!');
           setMessages([]);
         }
-      } else {
-        console.error('❌ Chat document does not exist!');
-        setMessages([]);
+      },
+      (error) => {
+        // ✅ Error handling
+        console.error('❌ Error listening to chat:', error);
+        Alert.alert('Error', 'Failed to load chat messages');
       }
-    },
-    (error) => {
-      // ✅ Error handling
-      console.error('❌ Error listening to chat:', error);
-      Alert.alert('Error', 'Failed to load chat messages');
-    }
-  );
+    );
 
-  // ✅ Android Back Button Handler (only on mobile)
-  let backHandler = null;
-  if (Platform.OS === 'android') {
-    backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      Keyboard.dismiss();
+    // ✅ Android Back Button Handler (only on mobile)
+    let backHandler = null;
+    if (Platform.OS === 'android') {
+      backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        Keyboard.dismiss();
+        if (modal) {
+          setModal(false);
+          return true; // Prevent default back behavior
+        }
+        return false; // Allow default back behavior
+      });
+    }
+
+    // ✅ Keyboard listener (works on all platforms)
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
       if (modal) {
         setModal(false);
-        return true; // Prevent default back behavior
       }
-      return false; // Allow default back behavior
     });
-  }
 
-  // ✅ Keyboard listener (works on all platforms)
-  const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', () => {
-    if (modal) {
-      setModal(false);
-    }
-  });
+    // ✅ Cleanup function
+    return () => {
+      console.log('🧹 Cleaning up chat listeners');
+      unsubscribe();
 
-  // ✅ Cleanup function
-  return () => {
-    console.log('🧹 Cleaning up chat listeners');
-    unsubscribe();
-    
-    // ✅ Only remove backHandler if it was created (Android only)
-    if (backHandler) {
-      backHandler.remove();
-    }
-    
-    keyboardDidShowListener.remove();
-  };
-}, [chatId, modal]); // ✅ Dependencies: chatId and modal
+      // ✅ Only remove backHandler if it was created (Android only)
+      if (backHandler) {
+        backHandler.remove();
+      }
+
+      keyboardDidShowListener.remove();
+    };
+  }, [chatId, modal]); // ✅ Dependencies: chatId and modal
 
 
   // useEffect(() => {
@@ -725,12 +813,12 @@ function Chat({ route, navigation }) {
         // Only process text messages for privacy (not images or audio)
         if (messageToSend.text && !messageToSend.image && !messageToSend.audio && encryptionEnabled) {
           const isSensitive = detectSensitiveData(messageToSend.text, keywords);
-          
+
           if (isSensitive) {
             // Message contains sensitive data - encrypt it
             const masked = maskSensitiveData(messageToSend.text, keywords);
             const encrypted = encryptMessage(messageToSend.text, encryptionKey);
-            
+
             processedMessage = {
               ...messageToSend,
               text: masked, // Display masked text
@@ -768,8 +856,203 @@ function Chat({ route, navigation }) {
         Alert.alert('Error', 'Failed to send message. Please try again.');
       }
     },
-    [chatId, encryptionKey, keywords, encryptionEnabled] // ✅ Changed from route.params.id
+    [chatId, encryptionKey, keywords, encryptionEnabled, secretSessionData, sessionKey, isSessionUnlocked] // ✅ Changed from route.params.id
   );
+
+  // Secret Session Handlers
+  const handleStartSession = async (durationMinutes, password) => {
+    try {
+      const salt = generateSalt();
+      const key = generateSessionKey(password, salt);
+      const endTime = Date.now() + durationMinutes * 60 * 1000;
+
+      const sessionData = {
+        isActive: true,
+        endTime,
+        salt,
+        password, // Store password for receiver
+        createdBy: auth?.currentUser?.email || 'unknown',
+        senderName: auth?.currentUser?.displayName || 'Someone',
+        durationMinutes
+      };
+
+      const chatDocRef = doc(database, 'chats', chatId);
+      await setDoc(chatDocRef, { secretSession: sessionData }, { merge: true });
+
+      setSessionKey(key);
+      setIsSessionUnlocked(true);
+      setSecretSessionModalVisible(false);
+
+      // Store password in localStorage for this chat
+      await AsyncStorage.setItem(`chat_${chatId}_password`, password);
+
+      Alert.alert(
+        'Secret Session Started',
+        `Password: ${password}\n\nShare this with the other person.`,
+        [{ text: 'OK' }]
+      );
+    } catch (error) {
+      console.error('Error starting session:', error);
+      Alert.alert('Error', 'Failed to start secret session');
+    }
+  };
+
+  const handleExtendSession = async (minutes) => {
+    try {
+      if (!secretSessionData) return;
+
+      const newEndTime = secretSessionData.endTime + minutes * 60 * 1000;
+      const chatDocRef = doc(database, 'chats', chatId);
+      await setDoc(chatDocRef, {
+        secretSession: {
+          ...secretSessionData,
+          endTime: newEndTime
+        }
+      }, { merge: true });
+
+      setSecretSessionModalVisible(false);
+      Alert.alert('Success', `Session extended by ${minutes} minutes`);
+    } catch (error) {
+      console.error('Error extending session:', error);
+      Alert.alert('Error', 'Failed to extend session');
+    }
+  };
+
+  const handleUnlockSession = async (password) => {
+    if (!secretSessionData) {
+      console.error('❌ Cannot unlock: No secret session data (salt missing)');
+      Alert.alert('Error', 'Cannot unlock session. Session data is missing.');
+      return;
+    }
+
+    try {
+      console.log('🔓 Attempting to unlock session with password...');
+
+      // Get stored password from localStorage
+      const storedPassword = await AsyncStorage.getItem(`chat_${chatId}_password`);
+
+      if (!storedPassword) {
+        // No stored password, this might be the receiver - use Firestore password
+        if (secretSessionData.password !== password) {
+          Alert.alert('Error', 'Incorrect password');
+          return;
+        }
+      } else {
+        // Compare with stored password
+        if (storedPassword !== password) {
+          Alert.alert('Error', 'Incorrect password');
+          return;
+        }
+      }
+
+      // Password is correct, generate key and unlock
+      const key = generateSessionKey(password, secretSessionData.salt);
+      setSessionKey(key);
+      setIsSessionUnlocked(true);
+      setSecretSessionModalVisible(false);
+
+      // Store unlock password for comparison
+      await AsyncStorage.setItem(`chat_${chatId}_unlock`, password);
+
+      console.log('✅ Session unlocked successfully');
+      Alert.alert('Success', 'Messages unlocked!');
+
+      // CRITICAL: Force messages to re-render by creating a new array reference
+      // This triggers GiftedChat to re-render all message bubbles with the new sessionKey
+      setMessages(prev => [...prev]);
+    } catch (error) {
+      console.error('❌ Key generation/unlock error:', error);
+      Alert.alert('Error', 'Invalid password or session error');
+    }
+  };
+
+  // Invitation Handlers
+  const handleAcceptInvite = async () => {
+    if (!pendingInvite) return;
+
+    try {
+      // Auto-unlock with the provided password
+      const key = generateSessionKey(pendingInvite.password, pendingInvite.salt);
+      setSessionKey(key);
+      setIsSessionUnlocked(true);
+      setSecretSessionData(pendingInvite);
+      await AsyncStorage.setItem(`secret_session_key_${chatId}`, key);
+
+      setInviteModalVisible(false);
+      setPendingInvite(null);
+      console.log('✅ Accepted secret session invitation');
+    } catch (error) {
+      console.error('Error accepting invitation:', error);
+      Alert.alert('Error', 'Failed to join session');
+    }
+  };
+
+  const handleDeclineInvite = () => {
+    setInviteModalVisible(false);
+    setPendingInvite(null);
+    console.log('❌ Declined secret session invitation');
+  };
+
+  const handleEndSession = async () => {
+    try {
+      const chatRef = doc(database, 'chats', chatId);
+      await setDoc(chatRef, {
+        secretSession: { isActive: false, endTime: 0 }
+      }, { merge: true });
+
+      setSecretSessionData(null);
+      setSessionKey(null);
+      setIsSessionUnlocked(false);
+
+      // Clear both password variables from localStorage
+      await AsyncStorage.removeItem(`chat_${chatId}_password`);
+      await AsyncStorage.removeItem(`chat_${chatId}_unlock`);
+
+      Alert.alert('Session Ended', 'The secret session has been ended.');
+    } catch (error) {
+      console.error('Error ending session:', error);
+      Alert.alert('Error', 'Failed to end session');
+    }
+  };
+
+  const handleOpenSecretModal = useCallback((mode) => {
+    setSecretSessionMode(mode);
+    setSecretSessionModalVisible(true);
+  }, []);
+
+  // Memoize renderBubble with sessionKey dependency to force re-render when key changes
+  const renderMessageBubble = useCallback((props) => {
+    return RenderMessage(
+      props,
+      handlePlayAudio,
+      secretSessionData,
+      sessionKey,
+      () => handleOpenSecretModal('unlock'),
+      props.currentMessage.user._id === auth?.currentUser?.email
+    );
+  }, [sessionKey, isSessionUnlocked, secretSessionData, handlePlayAudio, auth?.currentUser?.email, handleOpenSecretModal]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 8 }}>
+          {/* Secret Session Timer */}
+          {secretSessionData && secretSessionData.isActive && (
+            <TouchableOpacity onPress={() => handleOpenSecretModal('extend')}>
+              <SecretHeaderTimer endTime={secretSessionData.endTime} />
+            </TouchableOpacity>
+          )}
+
+          <ChatMenu
+            chatName={route.params?.chatName || 'Chat'}
+            chatId={chatId}
+            onStartSecretSession={() => handleOpenSecretModal('start')}
+            onEndSecretSession={secretSessionData?.isActive ? handleEndSession : null}
+          />
+        </View>
+      ),
+    });
+  }, [navigation, route.params?.chatName, chatId, secretSessionData, handleOpenSecretModal]);
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -786,10 +1069,10 @@ function Chat({ route, navigation }) {
   const startRecording = async () => {
     try {
       console.log('🎤 Requesting permissions...');
-      
+
       // Step 1: Request permissions
       const { status } = await ExpoAudio.requestPermissionsAsync();
-      
+
       if (status !== 'granted') {
         Alert.alert(
           'Permission required',
@@ -811,7 +1094,7 @@ function Chat({ route, navigation }) {
       const { recording: newRecording } = await ExpoAudio.Recording.createAsync(
         ExpoAudio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      
+
       setRecording(newRecording);
       setIsRecording(true);
       setRecordingDuration(0);
@@ -859,7 +1142,7 @@ function Chat({ route, navigation }) {
       }
 
       console.log('🛑 Stopping recording...');
-      
+
       // Stop the timer
       if (recordingIntervalRef.current) {
         clearInterval(recordingIntervalRef.current);
@@ -876,19 +1159,19 @@ function Chat({ route, navigation }) {
 
       if (uri) {
         console.log('✅ Recording saved to:', uri);
-        
+
         // Check if AI server is running
         console.log('🎤 Checking voice AI server...');
         const health = await voiceAIService.checkHealth();
-        
+
         if (health.status === 'error') {
           Alert.alert(
             'Voice Server Offline',
             'Voice masking server is not running. Send the original recording without masking?',
             [
               { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Send Without Masking', 
+              {
+                text: 'Send Without Masking',
                 onPress: () => sendVoiceMessage(uri)
               },
             ]
@@ -901,7 +1184,7 @@ function Chat({ route, navigation }) {
 
         try {
           console.log('🎤 Processing voice with AI masking...');
-          
+
           // Add timeout wrapper to prevent hanging
           // Use voice settings from context
           const processPromise = voiceAIService.processVoice(uri, {
@@ -919,39 +1202,39 @@ function Chat({ route, navigation }) {
           const processedUri = await Promise.race([processPromise, timeoutPromise]);
 
           console.log('✅ Voice processed successfully!');
-          
+
           await sendVoiceMessage(processedUri, {
             skipLoading: true,
             metadata: {
               audioIsMasked: true,
             },
           });
-          
+
         } catch (error) {
           console.error('❌ Voice processing failed:', error);
-          
+
           let errorMessage = 'Failed to process voice. Send original?';
-          
+
           if (error.message.includes('timeout')) {
             errorMessage = 'Voice processing is taking too long. The server might be busy. Try sending the original?';
           } else if (error.message.includes('ffmpeg') || error.message.includes('Could not load audio')) {
             errorMessage = `Server Error: ${error.message}\n\n💡 TIP: The server needs ffmpeg to process webm files. Please install ffmpeg on the server.\n\nSend original voice message?`;
           } else if (error.message && error.message.length > 0) {
             // Show the actual server error message (truncated if too long)
-            const serverError = error.message.length > 200 
-              ? error.message.substring(0, 200) + '...' 
+            const serverError = error.message.length > 200
+              ? error.message.substring(0, 200) + '...'
               : error.message;
             errorMessage = `Server Error: ${serverError}\n\nSend original voice message?`;
           }
-            
+
           Alert.alert(
             'Processing Failed',
             errorMessage,
             [
               { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Send Original', 
-                onPress: () => sendVoiceMessage(uri) 
+              {
+                text: 'Send Original',
+                onPress: () => sendVoiceMessage(uri)
               },
             ]
           );
@@ -1021,6 +1304,12 @@ function Chat({ route, navigation }) {
           name: auth?.currentUser?.displayName,
           avatar: 'https://i.pravatar.cc/300',
         },
+        // Mark as secret audio if secret session is active
+        ...(secretSessionData?.isActive && {
+          isSecretAudio: true,
+          salt: secretSessionData.salt,
+          type: 'secret',
+        }),
       };
 
       const { user: customUser, ...restMetadata } = metadata || {};
@@ -1059,10 +1348,10 @@ function Chat({ route, navigation }) {
 
   const uploadImageAsync = async (uri) => {
     setUploading(true);
-    
+
     try {
       let blob;
-      
+
       if (Platform.OS === 'web') {
         const response = await fetch(uri);
         blob = await response.blob();
@@ -1140,22 +1429,47 @@ function Chat({ route, navigation }) {
             messages={messages}
             showAvatarForEveryMessage={false}
             showUserAvatar={false}
-            onSend={(messagesArr) => onSend(messagesArr)}
-            imageStyle={{ 
-              height: 220, 
-              width: 220, 
+            onSend={(messages) => {
+              // Intercept send to handle secret session messages
+              if (secretSessionData && secretSessionData.isActive) {
+                const text = messages[0].text;
+                const MASTER_PASSWORD = 'admin1234'; // Hardcoded for now
+                const salt = secretSessionData.salt;
+                const key = generateSessionKey(MASTER_PASSWORD, salt);
+
+                if (key) {
+                  const encrypted = encryptSessionMessage(text, key);
+                  const secretMessage = {
+                    ...messages[0],
+                    text: '🔒 Encrypted Message', // Fallback/preview text
+                    encryptedText: encrypted,
+                    salt: salt, // Store salt so SecretMessageBubble can self-decrypt
+                    type: 'secret',
+                    isSensitive: false,
+                  };
+                  onSend([secretMessage]);
+                } else {
+                  Alert.alert('Error', 'Failed to encrypt message. Session may be invalid.');
+                }
+              } else {
+                onSend(messages);
+              }
+            }}
+            imageStyle={{
+              height: 220,
+              width: 220,
               borderRadius: 16,
               margin: 4,
             }}
-            messagesContainerStyle={{ 
+            messagesContainerStyle={{
               backgroundColor: colors.background,
               paddingBottom: INPUT_BOTTOM_GAP,
               paddingTop: 12,
               paddingHorizontal: 4,
               flexGrow: 1,
             }}
-            textInputStyle={{ 
-              backgroundColor: colors.backgroundSecondary, 
+            textInputStyle={{
+              backgroundColor: colors.backgroundSecondary,
               borderRadius: 24,
               borderWidth: 1.5,
               borderColor: colors.border,
@@ -1177,20 +1491,21 @@ function Chat({ route, navigation }) {
               name: auth?.currentUser?.displayName,
               avatar: 'https://i.pravatar.cc/300',
             }}
-            renderBubble={(props) => RenderMessage(props, handlePlayAudio)}
+            renderBubble={renderMessageBubble}
+            extraData={{ sessionKey, isSessionUnlocked }} // Force re-render when session key changes
             renderSend={(props) => RenderAttach({ ...props, onPress: pickImage })}
             renderUsernameOnMessage
             renderAvatarOnTop
-            renderInputToolbar={(props) => 
-          RenderInputToolbar(
-            props, 
-            handleEmojiPanel, 
-            isRecording,
-            recordingDuration, 
-            startRecording, 
-            stopRecording
-          )
-        }
+            renderInputToolbar={(props) =>
+              RenderInputToolbar(
+                props,
+                handleEmojiPanel,
+                isRecording,
+                recordingDuration,
+                startRecording,
+                stopRecording
+              )
+            }
             minInputToolbarHeight={Platform.OS === 'web' ? 76 : 72}
             onPressActionButton={handleEmojiPanel}
             renderLoading={RenderLoading}
@@ -1200,7 +1515,7 @@ function Chat({ route, navigation }) {
             bottomOffset={Platform.OS === 'web' ? WEB_INPUT_BOTTOM_GAP : 36}
             listViewProps={{
               showsVerticalScrollIndicator: true,
-              contentContainerStyle: { 
+              contentContainerStyle: {
                 flexGrow: 1,
                 paddingBottom: INPUT_BOTTOM_GAP,
               },
@@ -1248,6 +1563,25 @@ function Chat({ route, navigation }) {
           }}
         />
       )}
+
+      <SecretSessionModal
+        visible={secretSessionModalVisible}
+        onClose={() => setSecretSessionModalVisible(false)}
+        mode={secretSessionMode}
+        onStartSession={handleStartSession}
+        onExtendSession={handleExtendSession}
+        onUnlockSession={handleUnlockSession}
+        currentDuration={secretSessionData?.durationMinutes || 0}
+      />
+
+      <SecretSessionInviteModal
+        visible={inviteModalVisible}
+        onAccept={handleAcceptInvite}
+        onDecline={handleDeclineInvite}
+        senderName={pendingInvite?.senderName || 'Someone'}
+        duration={pendingInvite?.durationMinutes || 0}
+        password={pendingInvite?.password || ''}
+      />
     </View>
   );
 }
@@ -1603,7 +1937,7 @@ Chat.propTypes = {
     }),
   }).isRequired,
   navigation: PropTypes.object.isRequired,
-};  
+};
 
 export default Chat;
 

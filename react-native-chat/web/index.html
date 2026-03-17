@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Secure Chat</title>
+  <script>
+    // CRITICAL: Setup globals BEFORE any scripts load
+    window.__reanimatedLoggerConfig = {
+      debug: false,
+      strict: false,
+    };
+    window.global = window;
+    window.process = window.process || { env: {} };
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+</body>
+</html>

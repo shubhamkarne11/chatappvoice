@@ -161,6 +161,15 @@ const Settings = ({ navigation }) => {
         />
 
         <Cell
+          title="Masked Call Lab"
+          subtitle="Test real-time masked voice calls (web)"
+          icon="call-outline"
+          tintColor={colors.primary}
+          onPress={() => navigation.navigate('CallLab')}
+          style={styles.cell}
+        />
+
+        <Cell
           title="Privacy Demo"
           subtitle="Test encryption & masking features"
           icon="flask-outline"

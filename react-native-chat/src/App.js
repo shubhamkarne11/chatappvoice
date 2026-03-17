@@ -23,6 +23,7 @@ import { auth } from './config/firebase';
 import Settings from './screens/Settings';
 import ChatInfo from './screens/ChatInfo';
 import PrivacyDemo from './screens/PrivacyDemo';
+import CallLab from './screens/CallLab';
 import { colors } from './config/constants';
 import ChatMenu from './components/ChatMenu';
 import ChatHeader from './components/ChatHeader';
@@ -151,6 +152,11 @@ const MainStack = () => (
       name="Help" 
       component={Help}
       options={{ title: 'Help & Support' }}
+    />
+    <Stack.Screen 
+      name="CallLab" 
+      component={CallLab}
+      options={{ title: 'Masked Call Lab' }}
     />
     <Stack.Screen 
       name="Account" 
